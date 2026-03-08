@@ -56,6 +56,35 @@ git rebase 11.0/bugfixes   # replay local commits on top of upstream; do NOT use
 - `docker-compose.override.yaml` — see "Docker Compose override" section above for full content
 - `.docker/certs/` — regenerate with `mkcert itsm.shanel.com` from that directory
 
+**Rebase conflict resolution rules**
+
+Each file that may conflict has a fixed resolution strategy:
+
+| File | Strategy | Reason |
+|---|---|---|
+| `.docker/app/Dockerfile` | **Keep ours (`--ours`)** | Upstream base image (`ghcr.io/glpi-project/glpi-development-env`) is x86_64-only and will not run on ARM64. We own this file entirely. After resolving, manually review the upstream diff for new `RUN` steps (e.g. new PHP extensions) and port any useful additions into our `php:8.4-apache`-based version. |
+| `docker-compose.yaml` | **Manual merge** | Accept upstream structural changes (new services, image version bumps, new env vars) but keep our `127.0.0.2:` port bindings on all services and port `443:443` on the `app` service. Use VS Code's merge editor: Accept Incoming for upstream-only blocks, Accept Current for our port binding blocks. |
+| `.github/copilot-instructions.md` | **Keep ours (`--ours`)** | Our deployment, git workflow, and plugin system sections are prepended above upstream coding rules. Upstream only ever appends new coding rules below — those will be picked up in the next rebase naturally. If upstream significantly rewrites top-level rules, manually review and reconcile. |
+| `.docker/app/files/**` | **Keep ours** | These files (Apache vhosts, PHP ini, glpi.ini) are additive local config not present upstream. If upstream ever adds a files/ directory, reconcile manually. |
+| Any other file | **Accept Incoming (upstream)** | Unless the file is listed above, prefer upstream changes. Our local branch should only customise infrastructure files, not generic GLPI source. |
+
+After resolving all conflicts in a commit, continue the rebase:
+```bash
+git add <resolved-files>
+git rebase --continue
+```
+
+If the rebase goes wrong at any point, abort safely with:
+```bash
+git rebase --abort
+```
+
+Post-rebase, always rebuild and verify:
+```bash
+gmake build && gmake up
+# Confirm https://itsm.shanel.com loads, Xdebug active, containers running
+```
+
 **Database** — MariaDB 11.8, credentials `glpi`/`glpi`, database `glpi`. Direct query:
 ```bash
 docker compose exec db mariadb -uglpi -pglpi glpi -e "SELECT ..."
