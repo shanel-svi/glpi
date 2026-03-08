@@ -1,3 +1,85 @@
+## Deployment environment (this instance)
+
+This is GLPI 11.0.6 running locally on macOS (Apple M3 Pro, ARM64) via Docker Compose.
+
+**URLs**
+- App: `https://itsm.shanel.com` (port 443) — also `http://itsm.shanel.com:8080` for test env
+- Mailpit (catch-all SMTP): `http://itsm.shanel.com:8025`
+- DbGate (DB browser): `http://itsm.shanel.com:9000`
+- Webpack dev server: `http://itsm.shanel.com:9637`
+
+**Key paths**
+- Repo root: `/Users/shanelwijeratne/Documents/GLPI/glpi/glpi/`
+- Custom ARM64 Dockerfile: `.docker/app/Dockerfile` (built from `php:8.4-apache`, not the upstream `ghcr.io` image which is x86_64 only)
+- Apache/PHP config sources: `.docker/app/files/`
+- TLS cert (mkcert, trusted by macOS Keychain): `.docker/certs/itsm.shanel.com.pem`
+- PHP error log (host-mounted): `logs/php/php-error.log`
+- GLPI internal log (plugin errors, SQL, warnings): `files/_log/php-errors.log`
+- Xdebug log: `logs/php/xdebug.log`
+
+**Daily workflow commands** (always run from repo root)
+```bash
+gmake up          # start all containers
+gmake down        # stop containers (data preserved)
+gmake build       # rebuild app image after Dockerfile/.ini changes
+gmake cc          # clear GLPI cache
+gmake bash        # shell into app container
+gmake install     # full from-scratch setup (nukes and reinstalls DB)
+```
+
+**Docker Compose override** (`docker-compose.override.yaml`) disables `openldap` (ARM64-incompatible) via a profile, adds Xdebug env vars, mounts certs + log volumes, and binds all ports to `127.0.0.2`. Do not delete it.
+
+**Database** — MariaDB 11.8, credentials `glpi`/`glpi`, database `glpi`. Direct query:
+```bash
+docker compose exec db mariadb -uglpi -pglpi glpi -e "SELECT ..."
+```
+After any direct DB change run `gmake cc`.
+
+**Xdebug** — active in `debug,develop` mode on port 9003. VS Code launch config in `.vscode/launch.json` ("Listen for Xdebug (GLPI Docker)"). Path mapping: `/var/www/glpi` → repo root.
+
+**Installed plugins** — `oauthimap` (marketplace/oauthimap). OAuth/SMTP configured for Microsoft Entra (Azure), SMTP via `smtp.office365.com:587`.
+
+## Plugin system
+
+**Installation** — Plugins are installed via the GLPI Marketplace UI (Setup → Marketplace), which downloads them into `marketplace/<pluginname>/`. Activating a plugin from the UI calls `plugin_<name>_install()` in `hook.php`, which runs `Migration` against each `inc/*.class.php` that has a static `install()` method to create/alter DB tables.
+
+**Filesystem layout** (see `marketplace/oauthimap/` as the reference):
+```
+marketplace/<pluginname>/
+  setup.php          # Required: defines version constants, plugin_init_<name>(), plugin_version_<name>()
+  hook.php           # Required: plugin_<name>_install(), plugin_<name>_uninstall()
+  inc/               # Legacy class files — PluginNameClass pattern, loaded via autoload
+  front/             # Legacy page scripts (avoid in new plugins; use controllers)
+  ajax/              # AJAX endpoints
+  templates/         # Twig templates
+  locales/           # .po/.mo translation files
+  vendor/            # Plugin-specific Composer dependencies
+```
+
+**Bootstrap sequence** — On every request GLPI calls:
+1. `plugin_<name>_boot()` — stateless early init (e.g. registering stateless paths with `SessionManager`)
+2. `plugin_init_<name>()` — registers hooks in the global `$PLUGIN_HOOKS` array (only runs when session is active)
+
+**Hook registration** — All integration points are registered in `plugin_init_<name>()` via `$PLUGIN_HOOKS`:
+```php
+$PLUGIN_HOOKS['csrf_compliant']['myplugin'] = true;
+$PLUGIN_HOOKS['config_page']['myplugin']    = 'front/config.php';
+$PLUGIN_HOOKS['menu_toadd']['myplugin']     = ['config' => 'PluginMypluginFoo'];
+$PLUGIN_HOOKS['post_item_form']['myplugin'] = [PluginMypluginHook::class, 'method'];
+$PLUGIN_HOOKS['item_add']['myplugin']       = ['TargetClass' => [MyClass::class, 'method']];
+// Other common hooks: pre_item_update, item_update, item_delete, secured_fields,
+// mail_server_protocols, display_login, add_javascript, add_css
+```
+Guard all hook registration with `if (Plugin::isPluginActive('myplugin'))`.
+
+**Class naming** — Legacy plugin classes follow `PluginNameClass` (e.g. `PluginOauthimapApplication`). New plugin code should use PSR-4 namespaces under `GlpiPlugin\Name\` (e.g. `GlpiPlugin\Oauthimap\MailCollectorFeature`) with Composer autoloading.
+
+**DB migrations** — Use GLPI's `Migration` class inside `install()`/`uninstall()` static methods on each model class. Never write raw `CREATE TABLE` calls directly; use `$migration->addTable()`, `$migration->addField()`, `$migration->addKey()`, then call `$migration->executeMigration()` once in `hook.php`.
+
+**Architecture overview**
+GLPI 11.0 uses a Symfony kernel (`src/Glpi/Kernel.php`) with controllers in `src/Glpi/Controller/`. Legacy pages in `front/` are served via `LegacyFileLoadController`. New features must use controllers + Twig templates (`templates/`), not `front/` files. ORM is in `src/Glpi/DBAL/`. Assets/JS built via webpack (config in `webpack.config.js`), output to `public/build/`.
+
+---
 Follow GLPI’s latest coding standards and best practices: naming, indentation, comments, and PER Coding Style 3.0 compliance.
 Use the GLPI framework whenever possible.
 Use the snake_case variable naming convention.

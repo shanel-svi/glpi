@@ -57,3 +57,6 @@ phpstan.neon
 /tests/e2e/output/
 /tests/e2e/.env.local
 !/tests/e2e/.env
+# Local instance - generated at runtime
+/.docker/certs/
+/logs/
