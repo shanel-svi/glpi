@@ -29,6 +29,33 @@ gmake install     # full from-scratch setup (nukes and reinstalls DB)
 
 **Docker Compose override** (`docker-compose.override.yaml`) disables `openldap` (ARM64-incompatible) via a profile, adds Xdebug env vars, mounts certs + log volumes, and binds all ports to `127.0.0.2`. Do not delete it.
 
+## Git workflow
+
+**All local changes must stay on the `local/infra-setup` branch.** Never commit directly to `11.0/bugfixes` or any upstream branch.
+
+**Branch layout**
+- `11.0/bugfixes` — tracks upstream GLPI. Pull upstream here only, no local commits.
+- `local/infra-setup` — all infrastructure, config, and plugin customisations. Rebases onto `11.0/bugfixes` to pick up upstream changes.
+
+**Updating from upstream**
+```bash
+git checkout 11.0/bugfixes
+git pull
+git checkout local/infra-setup
+git rebase 11.0/bugfixes   # replay local commits on top of upstream; do NOT use merge
+```
+
+**Making changes**
+1. Ensure you are on `local/infra-setup` before editing any file:
+   ```bash
+   git branch   # must show * local/infra-setup
+   ```
+2. Commit to `local/infra-setup` only.
+
+**Files NOT in git** (must be recreated manually if lost):
+- `docker-compose.override.yaml` — see "Docker Compose override" section above for full content
+- `.docker/certs/` — regenerate with `mkcert itsm.shanel.com` from that directory
+
 **Database** — MariaDB 11.8, credentials `glpi`/`glpi`, database `glpi`. Direct query:
 ```bash
 docker compose exec db mariadb -uglpi -pglpi glpi -e "SELECT ..."
