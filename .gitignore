@@ -60,3 +60,5 @@ phpstan.neon
 .docker/certs/itsm.shanel.com-key.pem
 .gitignore
 .docker/certs/itsm.shanel.com.pem
+logs/php/php-error.log
+logs/php/xdebug.log
