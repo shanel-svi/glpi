@@ -57,3 +57,6 @@ phpstan.neon
 /tests/e2e/output/
 /tests/e2e/.env.local
 !/tests/e2e/.env
+.docker/certs/itsm.shanel.com-key.pem
+.gitignore
+.docker/certs/itsm.shanel.com.pem
